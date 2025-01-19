@@ -1,59 +1,84 @@
 "use client";
+import { robotApi } from "./api";
 import React, { useState } from "react";
 import {
   FaCircle,
   FaSquare,
-  FaPlay,
-  FaPause,
   FaSlidersH,
   FaExclamationTriangle,
+  FaUndo,
 } from "react-icons/fa";
 
 const RobotControlPanel = () => {
   const [status, setStatus] = useState("Idle");
   const [latestNotification, setLatestNotification] = useState("");
-  const [servoPositions, setServoPositions] = useState([90, 90, 90, 90, 90]);
-  const [isConveyorRunning, setIsConveyorRunning] = useState(true);
+  const [servoPositions, setServoPositions] = useState([
+    90, 180, 180, 120, 0, 0,
+  ]);
+  const [isLoading, setIsLoading] = useState(false);
   const [activeButton, setActiveButton] = useState(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
-  const handlePickPackage = (shape) => {
-    setActiveButton(shape);
-    setStatus(`Positioning ${shape} package...`);
-    setLatestNotification(`Positioned ${shape} package successfully.`);
+  const handleServoChange = async (index, value) => {
+    try {
+      setIsLoading(true);
+      const response = await robotApi.setServoPosition(index, parseInt(value));
+      const newPositions = [...servoPositions];
+      newPositions[index] = parseInt(value);
+      setServoPositions(newPositions);
+      setLatestNotification("Servo position updated successfully");
+    } catch (error) {
+      setLatestNotification(`Error: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    setTimeout(() => {
-      setStatus("Idle");
+  const handlePickPackage = async (shape) => {
+    try {
+      setIsLoading(true);
+      setActiveButton(shape);
+      setStatus(`Picking ${shape} package...`);
+      const response = await robotApi.pickPackage(shape);
+      setLatestNotification(`Picking ${shape} package`);
+
+      setTimeout(() => {
+        setStatus("Idle");
+        setActiveButton(null);
+      }, 1000);
+    } catch (error) {
+      setLatestNotification(`Error: ${error.message}`);
+      setStatus("Error");
       setActiveButton(null);
-    }, 1000);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleToggleConveyor = () => {
-    const newState = !isConveyorRunning;
-    setIsConveyorRunning(newState);
-    setStatus(
-      newState ? "Starting conveyor belt..." : "Stopping conveyor belt..."
-    );
-    setLatestNotification(
-      newState ? "Conveyor belt started." : "Conveyor belt stopped."
-    );
-
-    setTimeout(() => {
-      setStatus(newState ? "Conveyor running" : "Conveyor stopped");
-    }, 1000);
+  const handleResetPosition = async () => {
+    try {
+      setIsLoading(true);
+      setStatus("Resetting to initial position...");
+      const response = await robotApi.setInitialPosition();
+      setLatestNotification("Reset to initial position");
+      setStatus("Idle");
+      // Reset servo positions to initial values
+      setServoPositions([90, 180, 180, 120, 0, 0]);
+    } catch (error) {
+      setLatestNotification(`Error: ${error.message}`);
+      setStatus("Error");
+    } finally {
+      setIsLoading(false);
+      setShowResetConfirm(false);
+    }
   };
 
-  const handleServoChange = (index, value) => {
-    const newPositions = [...servoPositions];
-    newPositions[index] = parseInt(value);
-    setServoPositions(newPositions);
-    setLatestNotification(`Servo ${index + 1} moved to position ${value}°`);
-  };
-
+  // Rest of the JSX remains the same as in the previous version
   return (
     <div className="bg-gray-900 text-white min-h-screen p-4">
       <div className="container mx-auto space-y-6">
         <h1 className="text-3xl font-bold text-center mb-8">
-          Robot Arm Control Panel
+          RoboArm Control Panel
         </h1>
 
         <div className="grid md:grid-cols-2 gap-6">
@@ -94,6 +119,7 @@ const RobotControlPanel = () => {
                     value={position}
                     onChange={(e) => handleServoChange(index, e.target.value)}
                     className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                    disabled={isLoading}
                   />
                 </div>
               ))}
@@ -117,12 +143,14 @@ const RobotControlPanel = () => {
                   <button
                     key={label}
                     onClick={() => handlePickPackage(value)}
+                    disabled={isLoading}
                     className={`flex items-center justify-center gap-2 px-4 py-2 border border-gray-700 rounded-lg transition-all duration-200 
                     ${
                       activeButton === value
                         ? "bg-blue-600 transform scale-95"
                         : "hover:bg-gray-700 active:transform active:scale-95"
-                    }`}
+                    }
+                    ${isLoading ? "opacity-50 cursor-not-allowed" : ""}`}
                   >
                     <Icon
                       className={`w-4 h-4 ${
@@ -133,24 +161,47 @@ const RobotControlPanel = () => {
                   </button>
                 ))}
               </div>
-              <button
-                onClick={handleToggleConveyor}
-                className={`w-full px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 
-                ${
-                  isConveyorRunning
-                    ? "bg-red-600 hover:bg-red-700 active:bg-red-800"
-                    : "bg-green-600 hover:bg-green-700 active:bg-green-800"
-                }`}
-              >
-                {isConveyorRunning ? (
-                  <FaPause className="w-4 h-4" />
-                ) : (
-                  <FaPlay className="w-4 h-4" />
+              <div className="relative">
+                <button
+                  onClick={() => setShowResetConfirm(true)}
+                  disabled={isLoading}
+                  className={`w-full px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 
+                  bg-blue-600 hover:bg-blue-700 active:bg-blue-800
+                  ${isLoading ? "opacity-50 cursor-not-allowed" : ""}`}
+                >
+                  <FaUndo className="w-4 h-4" />
+                  Reset to Initial Position
+                </button>
+
+                {/* Reset Confirmation Dialog */}
+                {showResetConfirm && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-gray-800 p-6 rounded-lg shadow-xl max-w-sm w-full mx-4">
+                      <h3 className="text-lg font-semibold mb-2">
+                        Reset Robot Position
+                      </h3>
+                      <p className="text-gray-300 mb-4">
+                        This will move all servos back to their initial
+                        positions. Are you sure you want to continue?
+                      </p>
+                      <div className="flex justify-end gap-3">
+                        <button
+                          onClick={() => setShowResetConfirm(false)}
+                          className="px-4 py-2 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleResetPosition}
+                          className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                        >
+                          Continue
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )}
-                {isConveyorRunning
-                  ? "Stop Conveyor Belt"
-                  : "Start Conveyor Belt"}
-              </button>
+              </div>
             </div>
           </div>
 
@@ -162,6 +213,8 @@ const RobotControlPanel = () => {
                 className={`p-4 rounded-lg ${
                   status === "Idle"
                     ? "bg-green-700 text-green-200"
+                    : status === "Error"
+                    ? "bg-red-700 text-red-200"
                     : "bg-yellow-700 text-yellow-200"
                 }`}
               >
